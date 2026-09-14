@@ -29,14 +29,4 @@ cp .env.example .env  # заполни переменные
 docker compose up -d
 ```
 
-## Прогресс
-
-- [x] Phase 1 — схема БД, Docker Compose
-- [ ] Phase 2 — сбор матчей через OpenDota API, ETL-пайплайн
-- [ ] Phase 3 — аналитика и бенчмарки
-- [ ] Phase 4 — дашборд в Grafana
-- [ ] Phase 5 — мультипользовательский режим
-
----
-
 *Данные: [OpenDota API](https://docs.opendota.com/)*
