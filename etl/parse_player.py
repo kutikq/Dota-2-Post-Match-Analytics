@@ -2,7 +2,7 @@ import os
 import time
 import logging
 import requests
-from typing import Any, List, Dict, Optional
+from typing import Any
 from dotenv import load_dotenv
 
 #Глобальные переменные для парсинга
@@ -23,7 +23,7 @@ def get_player_matches(account_id: int = ACCOUNT_ID, limit: int = MATCHES_LIMIT)
     if OPENDOTA_API_KEY:
         param["api_key"] = OPENDOTA_API_KEY
     try:
-        response = requests.get(url, params=param, timeout=30)
+        response = requests.get(url, params=param, timeout=60)
         response.raise_for_status()  #ошибка при статусе
         
         return response.json()
@@ -53,6 +53,34 @@ def is_parsed(match: dict[str, Any]) -> bool:
     players = match.get("players") or []
     return bool(players) and players[0].get("gold_t") is not None
 
+# Запрашиваем парсинг реплея на серверах OpenDota
+def request_match_parse(match_id: int, retries: int = 3, wait: int = 60) -> dict[str, Any]:
+    url = f"{OPENDOTA_URL}/request/{match_id}"
+    params = {}
+    if OPENDOTA_API_KEY:
+        params["api_key"] = OPENDOTA_API_KEY
+    
+    try:
+        requests.post(url, params=params, timeout=30)
+        logging.info("Запрошен парсинг матча %s", match_id)
+    except requests.exceptions.RequestException as err:
+        logging.error("Ошибка при запросе парсинга: %s", err)
+        return {}
+
+    # Ждём и проверяем до retries раз
+    for attempt in range(1, retries + 1):
+        logging.info("Ожидание парсинга матча %s (попытка %d/%d)...", match_id, attempt, retries)
+        time.sleep(wait)
+
+        details = get_match_details(match_id)
+        if is_parsed(details):
+            logging.info("Матч %s успешно запаршен", match_id)
+            return details
+        
+        logging.warning("Матч %s ещё не готов", match_id)
+
+    logging.warning("Матч %s не запаршен за %d попыток, пропускаю", match_id, retries)
+    return {}
 
 # Сама функция парсинга матчей по игроку
 def fetch_player_matches(account_id: int) -> list[dict[str, Any]]:
@@ -69,16 +97,17 @@ def fetch_player_matches(account_id: int) -> list[dict[str, Any]]:
         time.sleep(REQUEST_DELAY)
 
         if not is_parsed(details):
-            logging.warning("Матч %s не запаршен, пропускаю", match_id)
-            continue
+            logging.warning("Матч %s не запаршен, запрашиваю парсинг...", match_id)
+            details = request_match_parse(match_id)
+            if not details:
+                continue
 
         parsed_matches.append(details)
 
     logging.info("Запаршенных матчей: %d из %d", len(parsed_matches), len(matches))
     return parsed_matches
 
-
-def main() -> None:
+def main():
     if not ACCOUNT_ID:
         raise SystemExit("ACCOUNT_ID не задан")
     
