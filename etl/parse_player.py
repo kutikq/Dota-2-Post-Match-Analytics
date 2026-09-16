@@ -4,6 +4,11 @@ import logging
 import requests
 from typing import Any
 from dotenv import load_dotenv
+from db import save_all, fetch_and_save_heroes
+import json
+from pathlib import Path
+
+CACHE_FILE = Path("etl/cache_matches.json")
 
 #Глобальные переменные для парсинга
 load_dotenv()   #загружаем данные из окружения для авториации
@@ -38,7 +43,7 @@ def get_match_details(match_id: int) -> dict[str, Any]:
     if OPENDOTA_API_KEY:
         param["api_key"] = OPENDOTA_API_KEY
     try:
-        response = requests.get(url, params=param,  timeout=30)
+        response = requests.get(url, params=param,  timeout=60)
         response.raise_for_status()  
         
         return response.json()
@@ -61,7 +66,7 @@ def request_match_parse(match_id: int, retries: int = 3, wait: int = 60) -> dict
         params["api_key"] = OPENDOTA_API_KEY
     
     try:
-        requests.post(url, params=params, timeout=30)
+        requests.post(url, params=params, timeout=60)
         logging.info("Запрошен парсинг матча %s", match_id)
     except requests.exceptions.RequestException as err:
         logging.error("Ошибка при запросе парсинга: %s", err)
@@ -110,11 +115,22 @@ def fetch_player_matches(account_id: int) -> list[dict[str, Any]]:
 def main():
     if not ACCOUNT_ID:
         raise SystemExit("ACCOUNT_ID не задан")
-    
+
     account_id = int(ACCOUNT_ID)
-    logging.info("Запуск парсинга для account_id=%s", account_id)
-    
-    matches = fetch_player_matches(account_id)
+
+    if not fetch_and_save_heroes():
+        raise SystemExit("Не удалось загрузить героев — прерываю")
+
+    if CACHE_FILE.exists():
+        logging.info("Загружаю матчи из кэша...")
+        with open(CACHE_FILE) as f:
+            matches = json.load(f)
+    else:
+        logging.info("Запуск парсинга для account_id=%s", account_id)
+        matches = fetch_player_matches(account_id)
+        with open(CACHE_FILE, "w") as f:
+            json.dump(matches, f)
+
     logging.info("Готово. Запаршено матчей: %d", len(matches))
 
     for match in matches:
@@ -123,7 +139,8 @@ def main():
             match["match_id"],
             match["duration"],
             match["radiant_win"],
-        ) 
+        )
+        save_all(match, account_id)
 
 
 if __name__ == "__main__":

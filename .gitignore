@@ -1,4 +1,5 @@
 .env
 __pycache__/
 *.pyc
-dota-parse/
+dota_parse/
+etl/cache_matches.json
