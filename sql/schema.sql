@@ -83,14 +83,14 @@ CREATE TABLE IF NOT EXISTS match_players (
     backpack_1  INTEGER     DEFAULT 0,
     backpack_2  INTEGER     DEFAULT 0,
 
-    bench_gpm_pct           NUMERIC(4, 3),
-    bench_xpm_pct           NUMERIC(4, 3),
-    bench_kills_pct         NUMERIC(4, 3),
-    bench_lh_pct            NUMERIC(4, 3),
-    bench_hero_damage_pct   NUMERIC(4, 3),
-    bench_hero_healing_pct  NUMERIC(4, 3),
-    bench_tower_damage_pct  NUMERIC(4, 3),
-    bench_stuns_pct         NUMERIC(4, 3),
+    bench_gpm_pct           FLOAT,
+    bench_xpm_pct           FLOAT,
+    bench_kills_pct         FLOAT,
+    bench_lh_pct            FLOAT,
+    bench_hero_damage_pct   FLOAT,
+    bench_hero_healing_pct  FLOAT,
+    bench_tower_damage_pct  FLOAT,
+    bench_stuns_pct         FLOAT,
 
     PRIMARY KEY (match_id, player_slot)
 );

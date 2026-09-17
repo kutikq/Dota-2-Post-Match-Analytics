@@ -56,7 +56,14 @@ def get_match_details(match_id: int) -> dict[str, Any]:
 # поэтому будем проверять его для подтверждения парсинга
 def is_parsed(match: dict[str, Any]) -> bool:
     players = match.get("players") or []
-    return bool(players) and players[0].get("gold_t") is not None
+    if not players:
+        return False
+    
+    has_gold_t = players[0].get("gold_t") is not None
+    bench = players[0].get("benchmarks") or {}
+    has_benchmarks = bool(bench.get("gold_per_min"))
+    
+    return has_gold_t and has_benchmarks
 
 # Запрашиваем парсинг реплея на серверах OpenDota
 def request_match_parse(match_id: int, retries: int = 3, wait: int = 60) -> dict[str, Any]:

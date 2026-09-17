@@ -24,6 +24,14 @@ ACCOUNT_ID = os.getenv("ACCOUNT_ID")
 
 engine = create_engine(f"{DRIVER}://{USER}:{PASS}@{HOST}:{PORT}/{DB_NAME}")
 
+# вспомогательнаяя функция для конвертации в float формат, нужна для процентилей от бенчмарков
+def safe_float(val: Any) -> float | None:
+    try:
+        return float(val) if val is not None else None
+    except (ValueError, TypeError):
+        return None
+
+# обощающая функцимя передачи данных в таблицы БД
 def insert_parsed_data(table: str, data: dict) -> bool:
     columns = ", ".join(data.keys())
     placeholders = ", ".join(f":{k}" for k in data.keys())
@@ -38,7 +46,7 @@ def insert_parsed_data(table: str, data: dict) -> bool:
         logging.error("Ошибка при записи в таблицу %s: %s", table, err)
         return False
 
-
+# сайт переодически не работает чтобы не было проблем с переносом введем функция для чтения из локального файла
 def fetch_and_save_heroes() -> bool:
     local_file = Path("data/heroes.json")
 
@@ -134,21 +142,22 @@ def save_match_players(match_data: dict, tracked_account_id: int = ACCOUNT_ID) -
         bench = player.get("benchmarks") or {}
         data = {k: player.get(k) for k in MATCH_PLAYER_FIELDS}
 
-        # поля которых нет напрямую в player — добавляем вручную
+        # Поля, которых нет напрямую в player - добавляем вручную
         data["match_id"]    = match_data["match_id"]
         data["is_radiant"]  = player.get("isRadiant", False)
         data["is_tracked"]  = player.get("account_id") == int(tracked_account_id or 0)
         data["win"]         = bool(player.get("win"))
         data["firstblood_claimed"] = bool(player.get("firstblood_claimed", False))
-        # расплющиваем benchmarks
-        data["bench_gpm_pct"]          = (bench.get("gold_per_min") or {}).get("pct")
-        data["bench_xpm_pct"]          = (bench.get("xp_per_min") or {}).get("pct")
-        data["bench_kills_pct"]        = (bench.get("kills_per_min") or {}).get("pct")
-        data["bench_lh_pct"]           = (bench.get("last_hits_per_min") or {}).get("pct")
-        data["bench_hero_damage_pct"]  = (bench.get("hero_damage_per_min") or {}).get("pct")
-        data["bench_hero_healing_pct"] = (bench.get("hero_healing_per_min") or {}).get("pct")
-        data["bench_tower_damage_pct"] = (bench.get("tower_damage") or {}).get("pct")
-        data["bench_stuns_pct"]        = (bench.get("stuns_per_min") or {}).get("pct")
+        
+        # используем вспомогательную функцию чтобы бенчмарки нормально передавалис в БД
+        data["bench_gpm_pct"]          = safe_float((bench.get("gold_per_min") or {}).get("pct"))
+        data["bench_xpm_pct"]          = safe_float((bench.get("xp_per_min") or {}).get("pct"))
+        data["bench_kills_pct"]        = safe_float((bench.get("kills_per_min") or {}).get("pct"))
+        data["bench_lh_pct"]           = safe_float((bench.get("last_hits_per_min") or {}).get("pct"))
+        data["bench_hero_damage_pct"]  = safe_float((bench.get("hero_damage_per_min") or {}).get("pct"))
+        data["bench_hero_healing_pct"] = safe_float((bench.get("hero_healing_per_min") or {}).get("pct"))
+        data["bench_tower_damage_pct"] = safe_float((bench.get("tower_damage") or {}).get("pct"))
+        data["bench_stuns_pct"]        = safe_float((bench.get("stuns_per_min") or {}).get("pct"))
 
         if not insert_parsed_data("match_players", data):
             success = False
