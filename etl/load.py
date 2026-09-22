@@ -73,16 +73,13 @@ def load_match_bundle(bundle: dict):
         if bundle["team_timelines"]:
             bulk_insert(conn, "team_timelines", bundle["team_timelines"], conflict_target="match_id, minute")
 
-
-if __name__ == "__main__":
-    heroes = transform_heroes()
-    load_heroes(heroes)
-    logging.info("Героев загружено: %d", len(heroes))
-
-    # потом матчи
-    files = list(Path("data/raw/matches").glob("*.json"))
-    for file in files:
-        bundle = run_transform_file(file)
-        if bundle:
-            load_match_bundle(bundle)
-            logging.info("Матч %s загружен", bundle["match"]["match_id"])
+# функция для ограничения загрузки уже имеющихся файлов
+def get_existing_match_ids() -> set[int]:
+    with engine.connect() as conn:
+        result = conn.execute(text("SELECT match_id FROM matches"))
+        return {row[0] for row in result}
+# не будем при каждой загрузке догружать героев
+def heroes_already_loaded() -> bool:
+    with engine.connect() as conn:
+        result = conn.execute(text("SELECT COUNT(*) FROM heroes"))
+        return result.scalar() > 0
