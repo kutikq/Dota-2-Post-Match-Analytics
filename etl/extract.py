@@ -1,31 +1,20 @@
-import os
 import time
 import json
 import logging
 from pathlib import Path
 from typing import Any
+
 import requests
-from dotenv import load_dotenv
 
-#загружаем данные из окружения для авториации
-load_dotenv()
+from etl.config import (
+    OPENDOTA_URL, OPENDOTA_API_KEY, ACCOUNT_ID,
+    REQUEST_DELAY, MATCHES_LIMIT, LOBBY_TYPE_RANKED,
+    RAW_MATCHES_DIR, HEROES_FILE,
+)
 
-# для отладки работы отображение логов
-logging.basicConfig(level=logging.INFO)
-
-
-#Глобальные переменные для парсинга
-OPENDOTA_URL = "https://api.opendota.com/api"
-OPENDOTA_API_KEY = os.getenv("OPENDOTA_API_KEY")  # если парсить большие данные можно авторизоваться и проводить большие загрузки(платтно)
-ACCOUNT_ID = os.getenv("ACCOUNT_ID")    #id пользователя которого ьудем парсить
-REQUEST_DELAY = 1.1 #у OpenDota лимит на 60 запросов в минуту
-MATCHES_LIMIT = 10
-LOBBY_TYPE_RANKED = 7   #пока что реализуем только для ренйтинговых матчей
-
-# Директории для хранения raw-данных
-RAW_DIR = Path("data/raw")
-HEROES_FILE = RAW_DIR / "heroes.json"
-RAW_MATCHES_DIR = Path("data/raw/matches")  #будем сохранять данные о матчах для бэкапа и сокращения кол-ва запросов
+# Справочник героев обновляем не чаще раза в месяц: Valve добавляет героев редко
+# но матч с неизвестным hero_id упадёт на внешнем ключе heroes(hero_id)
+HEROES_MAX_AGE_DAYS = 30
 
 def _get_params(extra_params: dict | None = None) -> dict:
     params = extra_params or {}
@@ -33,26 +22,34 @@ def _get_params(extra_params: dict | None = None) -> dict:
         params["api_key"] = OPENDOTA_API_KEY
     return params
 
+def _heroes_file_is_fresh() -> bool:
+    if not HEROES_FILE.exists():
+        return False
+    age_seconds = time.time() - HEROES_FILE.stat().st_mtime
+    return age_seconds < HEROES_MAX_AGE_DAYS * 86400
+
 #скачиваем данные о героях(через локальный файл если есть, тю.к. запросы переодически недлоступны)
+#изменения: добалена функция для проверки актуальности файла
 def fetch_and_save_heroes() -> bool:
-    if HEROES_FILE.exists():
-        logging.info("Справочник героев уже существует локально: %s", HEROES_FILE)
-        return True
+    if _heroes_file_is_fresh():
+            logging.info("Справочник героев актуален: %s", HEROES_FILE)
+            return True
 
     url = f"{OPENDOTA_URL}/heroes"
     try:
         response = requests.get(url, params=_get_params(), timeout=60)
         response.raise_for_status()
         heroes_data = response.json()
-        
-        with open(HEROES_FILE, "w", encoding="utf-8") as f:
-            json.dump(heroes_data, f, ensure_ascii=False, indent=2)
-            
-        logging.info("Справочник героев успешно сохранен в %s", HEROES_FILE)
-        return True
     except requests.exceptions.RequestException as err:
         logging.error("Ошибка при скачивании героев: %s", err)
+        if HEROES_FILE.exists():
+            logging.warning("Использую устаревший локальный справочник героев")
+            return True
         return False
+    
+    save_raw_json(heroes_data, HEROES_FILE)
+    logging.info("Справочник героев обновлён: %s", HEROES_FILE)
+    return True
 
 
 # Спарсив матч, можем получить раскладку по таймингам, например gold_t в котором будет расписан золото по минутам
@@ -80,10 +77,10 @@ def get_match_details(match_id: int) -> dict[str, Any]:
         return {}
 
 # Запрашиваем парсинг реплея на серверах OpenDota
-def request_match_parse(match_id: int, retries: int = 3, wait: int = 60) -> dict[str, Any]:
+def request_match_parse(match_id: int, retries: int = 3, wait: int = 45) -> dict[str, Any]:
     url = f"{OPENDOTA_URL}/request/{match_id}"
     try:
-        requests.post(url, params=_get_params(), timeout=60)
+        requests.post(url, params=_get_params(), timeout=45)
         logging.info("Запрошен парсинг матча %s", match_id)
     except requests.exceptions.RequestException as err:
         logging.error("Ошибка при запросе парсинга: %s", err)
@@ -104,10 +101,16 @@ def request_match_parse(match_id: int, retries: int = 3, wait: int = 60) -> dict
     logging.warning("Матч %s не запаршен за %d попыток, пропускаю", match_id, retries)
     return {}
 
-#сохраним данные о матче
-def save_raw_json(data: dict, filepath: Path) -> None:
-    with open(filepath, "w", encoding="utf-8") as f:
+#сохраним данные о матче, 
+#изменения: теперь сохраняем во временный файл, чтобы при обрыве записи на диске не останется битого JSON
+def save_raw_json(data: dict | list, filepath: Path) -> None:
+    filepath.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = filepath.with_suffix(filepath.suffix + ".tmp")
+    
+    with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+    
+    tmp_path.replace(filepath)
 
 #скачиваем данные о матчах игрока
 def fetch_and_save_player_matches(account_id: int = ACCOUNT_ID, limit: int = MATCHES_LIMIT) -> list[Path]:
@@ -115,7 +118,7 @@ def fetch_and_save_player_matches(account_id: int = ACCOUNT_ID, limit: int = MAT
     params = _get_params({"limit": limit, "lobby_type": LOBBY_TYPE_RANKED})
     
     try:
-        response = requests.get(url, params=params, timeout=60)
+        response = requests.get(url, params=params, timeout=45)
         response.raise_for_status()
         matches_list = response.json()
     except requests.exceptions.RequestException as err:
@@ -147,23 +150,33 @@ def fetch_and_save_player_matches(account_id: int = ACCOUNT_ID, limit: int = MAT
 
     return saved_files
 
-#функция для запуска 
-def run_extract():
-    if not ACCOUNT_ID:
-        raise SystemExit("ACCOUNT_ID не задан в .env файле")
-
+#функция для запуска
+#изменения: теперь возвращаем результат для праильного etl, поскольку AIRFlow должен иметь передавал возвращенное значение
+def run_extract(account_id: int | None = None, limit: int = MATCHES_LIMIT) -> list[Path]:
     logging.info("ETL этап 1: извлечение данных")
-    
+
+    if OPENDOTA_API_KEY:
+        logging.info("OpenDota: используется API-ключ")
+    else:
+        logging.info("OpenDota: работаем без ключа (60 req/min)")
+
     # шаг 1: Загрузка справочника героев
     if not fetch_and_save_heroes():
         raise SystemExit("Ошибка загрузки героев")
 
     # Шаг 2: Скачивание личных игр одного игрока
-    account_id = int(ACCOUNT_ID)
-    logging.info(f"Скачивание матчей для account_id={account_id}")
-    saved_files = fetch_and_save_player_matches(account_id=account_id, limit=MATCHES_LIMIT)
-    logging.info(f"Успешно обработано и сохранено файлов: {len(saved_files)}")
+    account_id = account_id or ACCOUNT_ID
+    logging.info("Скачивание матчей для account_id=%s", account_id)
+
+    saved_files = fetch_and_save_player_matches(account_id=account_id, limit=limit)
+    logging.info("Успешно обработано и сохранено файлов: %d", len(saved_files))
+
+    return saved_files
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+    )
     run_extract()
