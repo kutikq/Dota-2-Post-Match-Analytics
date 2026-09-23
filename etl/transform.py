@@ -1,16 +1,10 @@
-import os
 import json
 import logging
 from pathlib import Path
 from typing import Any
 from datetime import datetime, timezone, timedelta
 
-logging.basicConfig(level=logging.INFO)
-
-# Директории для хранения raw-данных
-RAW_DIR = Path("data/raw")
-RAW_MATCHES_DIR = RAW_DIR / "matches"
-HEROES_FILE = RAW_DIR / "heroes.json"
+from etl.config import ACCOUNT_ID, HEROES_FILE, RAW_MATCHES_DIR
 
 # Наборы полей (фильтры)
 HERO_FIELDS = {"name", "localized_name", "primary_attr", "attack_type", "roles"}
@@ -41,9 +35,9 @@ MATCH_PLAYER_FIELDS = {
 def safe_float(val: Any) -> float | None:
     if val is None:
         return None
+    if isinstance(val, dict):
+        val = val.get("pct")
     try:
-        if isinstance(val, dict):
-            val = val.get("pct") or val.get("raw")
         return float(val) if val is not None else None
     except (ValueError, TypeError):
         return None
@@ -87,9 +81,6 @@ def extract_global_players(match_data: dict[str, Any]) -> list[dict[str, Any]]:
 # таблица MATCH_PLAYERS
 def extract_match_players(match_id: int, players_data: list[dict[str, Any]], radiant_win: bool) -> list[dict[str, Any]]:
     match_players = []
-    
-    # Получаем отслеживаемый account_id из .env (по умолчанию 0)
-    tracked_account_id = int(os.getenv("ACCOUNT_ID") or 0)
 
     for p in players_data:
         benchmarks = p.get("benchmarks") or {}
@@ -107,7 +98,7 @@ def extract_match_players(match_id: int, players_data: list[dict[str, Any]], rad
 
         # 3. Вычисляем is_tracked (наш ли это игрок)
         account_id = p.get("account_id")
-        is_tracked = (account_id == tracked_account_id) if account_id else False
+        is_tracked = (account_id == ACCOUNT_ID) if account_id else False
 
         player_entry.update({
             "match_id": match_id,
@@ -192,6 +183,10 @@ def run_transform_file(filepath: Path) -> dict[str, Any] | None:
         return None
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+    )
     files = list(RAW_MATCHES_DIR.glob("*.json"))
     logging.info("Обработка %d файлов...", len(files))
     results = [run_transform_file(f) for f in files if f.is_file()]

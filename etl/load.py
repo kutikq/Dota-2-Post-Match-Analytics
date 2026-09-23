@@ -1,25 +1,5 @@
-import os
-import logging
-from sqlalchemy import create_engine, text
-from dotenv import load_dotenv
-from etl.transform import run_transform_file, transform_heroes
-from pathlib import Path
-
-# Глобальные переменные
-load_dotenv()   # загружаем данные из окружения для авторизации
-
-logging.basicConfig(level=logging.INFO)
-
-OPENDOTA_URL = "https://api.opendota.com/api"
-DRIVER = "postgresql+psycopg2"
-HOST = os.getenv('POSTGRES_HOST')
-PORT = os.getenv('POSTGRES_PORT')
-USER = os.getenv('POSTGRES_USER')
-PASS = os.getenv('POSTGRES_PASSWORD')
-DB_NAME = os.getenv('POSTGRES_DB')
-ACCOUNT_ID = os.getenv("ACCOUNT_ID")
-
-engine = create_engine(f"{DRIVER}://{USER}:{PASS}@{HOST}:{PORT}/{DB_NAME}")
+from sqlalchemy import text
+from etl.config import engine
 
 # Универсальная функция вставки
 def bulk_insert(conn, table: str, data: list[dict] | dict, conflict_target: str, do_update: bool = False):
@@ -78,6 +58,7 @@ def get_existing_match_ids() -> set[int]:
     with engine.connect() as conn:
         result = conn.execute(text("SELECT match_id FROM matches"))
         return {row[0] for row in result}
+
 # не будем при каждой загрузке догружать героев
 def heroes_already_loaded() -> bool:
     with engine.connect() as conn:

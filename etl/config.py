@@ -5,7 +5,6 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
-import logging
 
 #загружаем данные из окружения для авториации
 load_dotenv()
