@@ -5,3 +5,4 @@ dota_parse/
 etl/cache_matches.json
 BACKLOG.md
 data/raw/matches
+logs/

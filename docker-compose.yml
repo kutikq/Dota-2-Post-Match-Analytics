@@ -1,5 +1,36 @@
+# Общий шаблон для сервисов Airflow
+x-airflow-common: &airflow-common
+  build: .
+  user: "${AIRFLOW_UID:-50000}:0"
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_DB_USER}:${AIRFLOW_DB_PASSWORD}@airflow_postgres:5432/${AIRFLOW_DB_NAME}
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:-}
+    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY:-dev-secret-key}
+    AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: 30
+
+    PYTHONPATH: /opt/airflow
+
+    # Внутри docker-сети наша база — по имени контейнера и порту 5432,
+    # а не localhost:5433
+    POSTGRES_HOST: dota_postgres
+    POSTGRES_PORT: 5432
+    POSTGRES_USER: ${POSTGRES_USER}
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    POSTGRES_DB: ${POSTGRES_DB}
+    ACCOUNT_ID: ${ACCOUNT_ID}
+    OPENDOTA_API_KEY: ${OPENDOTA_API_KEY:-}
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./etl:/opt/airflow/etl
+    - ./data:/opt/airflow/data
+    - ./logs:/opt/airflow/logs
+
+
 services:
 
+  # Наша аналитическая БД
   postgres:
     image: postgres:16
     container_name: dota_postgres
@@ -13,6 +44,10 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./sql/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      retries: 10
 
   pgadmin:
     image: dpage/pgadmin4
@@ -26,5 +61,62 @@ services:
     depends_on:
       - postgres
 
+  # Служебная БД Airflow — состояние задач. Наружу не пробрасывается
+  airflow_postgres:
+    image: postgres:16
+    container_name: dota_airflow_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${AIRFLOW_DB_NAME}
+      POSTGRES_USER: ${AIRFLOW_DB_USER}
+      POSTGRES_PASSWORD: ${AIRFLOW_DB_PASSWORD}
+    volumes:
+      - airflow_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${AIRFLOW_DB_USER} -d ${AIRFLOW_DB_NAME}"]
+      interval: 5s
+      retries: 10
+
+  # Одноразовый: миграции схемы + создание пользователя. Выходит с кодом 0
+  airflow-init:
+    <<: *airflow-common
+    container_name: dota_airflow_init
+    command: version
+    environment:
+      <<: *airflow-common-env
+      _AIRFLOW_DB_MIGRATE: 'true'
+      _AIRFLOW_WWW_USER_CREATE: 'true'
+      _AIRFLOW_WWW_USER_USERNAME: ${AIRFLOW_ADMIN_USER}
+      _AIRFLOW_WWW_USER_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD}
+    depends_on:
+      airflow_postgres:
+        condition: service_healthy
+
+  # Планировщик: читает DAG-файлы, следит за расписанием, запускает задачи
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: dota_airflow_scheduler
+    command: scheduler
+    restart: unless-stopped
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+
+  # Веб-интерфейс на localhost:8080
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: dota_airflow_webserver
+    command: webserver
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+
 volumes:
   postgres_data:
+  airflow_postgres_data:
