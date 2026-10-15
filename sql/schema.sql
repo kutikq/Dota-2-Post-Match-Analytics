@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS match_players (
     backpack_0  INTEGER     DEFAULT 0,
     backpack_1  INTEGER     DEFAULT 0,
     backpack_2  INTEGER     DEFAULT 0,
+    item_neutral INTEGER DEFAULT 0,
 
     bench_gpm_pct           FLOAT,
     bench_xpm_pct           FLOAT,

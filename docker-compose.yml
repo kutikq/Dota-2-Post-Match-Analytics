@@ -9,6 +9,7 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:-}
     AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY:-dev-secret-key}
     AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: 30
+    MATCHES_LIMIT: ${MATCHES_LIMIT:-100}
 
     PYTHONPATH: /opt/airflow
 
@@ -58,6 +59,8 @@ services:
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
     ports:
       - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
     depends_on:
       - postgres
 
@@ -115,8 +118,25 @@ services:
     depends_on:
       airflow-init:
         condition: service_completed_successfully
+  
+  #аналитический слой grafana
+  grafana:
+    image: grafana/grafana-oss
+    container_name: dota_grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - postgres
 
 
 volumes:
   postgres_data:
   airflow_postgres_data:
+  pgadmin_data:
+  grafana_data:

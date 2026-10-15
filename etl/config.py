@@ -21,7 +21,7 @@ RAW_MATCHES_DIR.mkdir(parents=True, exist_ok=True)
 OPENDOTA_URL = "https://api.opendota.com/api"
 OPENDOTA_API_KEY = os.getenv("OPENDOTA_API_KEY")  # если парсить большие данные можно авторизоваться и проводить большие загрузки(платтно)
 REQUEST_DELAY = 1.1 #у OpenDota лимит на 60 запросов в минуту
-MATCHES_LIMIT = 10
+MATCHES_LIMIT = int(os.getenv("MATCHES_LIMIT", 10))
 LOBBY_TYPE_RANKED = 7   #пока что реализуем только для рейтинговых матчей
 
 # функция для провеки корректности .env файла
